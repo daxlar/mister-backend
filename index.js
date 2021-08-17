@@ -16,6 +16,7 @@ let docClient = new AWS.DynamoDB.DocumentClient();
 const TABLE_NAME = "ScheduledRooms";
 const PRIMARY_KEY = "Room";
 const SECONDARY_KEY = "Assigned";
+const RANDOM_NUMBER = Math.floor(Math.random() * 90000) + 10000;
 
 let params = {
   TableName: TABLE_NAME,
@@ -46,53 +47,12 @@ dynamodb.createTable(params, function (err, data) {
     );
   }
 });
-/*
-let scanParams = {
-  TableName: "Movies",
-  FilterExpression: "#start between :start_yr and :end_yr",
-  ExpressionAttributeNames: {
-    "#yr": "StartingTime",
-  },
-  ExpressionAttributeValues: {
-    ":start_yr": "2021-08-14",
-    ":end_yr": "2021-08-16",
-  },
-};
-*/
-
-/*
-
-docClient.scan(params, onScan);
-
-function onScan(err, data) {
-  if (err) {
-    console.error(
-      "Unable to scan the table. Error JSON:",
-      JSON.stringify(err, null, 2)
-    );
-  } else {
-    // print all the movies
-    console.log("Scan succeeded.");
-    data.Items.forEach(function (movie) {
-      console.log(movie.Room, movie.StartingTime);
-    });
-    // continue scanning if we have more movies, because
-    // scan can retrieve a maximum of 1MB of data
-    if (typeof data.LastEvaluatedKey != "undefined") {
-      console.log("Scanning for more...");
-      params.ExclusiveStartKey = data.LastEvaluatedKey;
-      docClient.scan(params, onScan);
-    }
-    
-  }
-}
-*/
 
 let putParams = {
   TableName: TABLE_NAME,
   Item: {
     Room: "1",
-    Assigned: "2021-08-15",
+    Assigned: "20210815" + "-" + RANDOM_NUMBER,
     StartingTime: 1380,
     EndingTime: 1410,
   },
@@ -119,6 +79,7 @@ app.get("/", (req, res) => {
   Logic:
     -> (TODO): serverside validation if meeting duration + startTime < endTime!
     -> (TODO): serverside validation that minimum meeting duration is 15min
+    -> (TODO): using random number in key to create separate entries might override entry
     -> Look in database to see all conflicting times
       -> filter Query params by:
           -> endTimeClient < endTimeServer && endTimeClient > startTimeServer
@@ -158,12 +119,13 @@ app.post("/", (req, res) => {
     i += durationMinutes
   ) {
     let interval = {
-      meetingStartTime: startTimeRange,
-      meetingEndTime: startTimeRange + durationMinutes,
+      meetingStartTime: i,
+      meetingEndTime: i + durationMinutes,
     };
     meetingIntervals.push(interval);
   }
 
+  console.log(meetingIntervals);
   /*
   Build a query param for each of the possible intervals
   */
@@ -173,17 +135,18 @@ app.post("/", (req, res) => {
     let scanParam = {
       TableName: TABLE_NAME,
       FilterExpression:
-        "(#date = :meeting_date) and " +
-        "(#start > :start_time and #start < :end_time) and " +
-        "(#end > :start_time and #end < :end_time) and " +
-        "(#start >= :start_time and #end <= :end_time)",
+        "(#date BETWEEN :meeting_date_lower AND :meeting_date_upper) AND (" +
+        "(#start > :start_time AND #start < :end_time) OR " +
+        "(#end  > :start_time AND #end < :end_time) OR " +
+        "(#start >= :start_time AND #end <= :end_time ))",
       ExpressionAttributeNames: {
         "#date": SECONDARY_KEY,
         "#start": "StartingTime",
         "#end": "EndingTime",
       },
       ExpressionAttributeValues: {
-        ":meeting_date": meetingDate,
+        ":meeting_date_lower": meetingDate + "-00000",
+        ":meeting_date_upper": meetingDate + "-99999",
         ":start_time": meetingIntervals[i].meetingStartTime,
         ":end_time": meetingIntervals[i].meetingEndTime,
       },
@@ -197,8 +160,11 @@ app.post("/", (req, res) => {
   */
 
   let conflictIntervals = [];
+  let availableIntervals = [];
+
   for (let i = 0; i < scanParams.length; i++) {
-    docClient.scan(params, (err, data) => {
+    console.log(scanParams[i]);
+    docClient.scan(scanParams[i], (err, data) => {
       if (err) {
         console.error(
           "Unable to scan the table. Error JSON:",
@@ -210,7 +176,8 @@ app.post("/", (req, res) => {
         data.Items.forEach(function (meeting) {
           console.log(meeting);
           conflictIntervals.push(meeting);
-          console.log(conflictIntervals);
+          //console.log(conflictIntervals);
+          console.log(conflictIntervals.length);
         });
         /*
         // continue scanning if we have more movies, because
