@@ -17,6 +17,8 @@ const TABLE_NAME = "ScheduledRooms";
 const PRIMARY_KEY = "Room";
 const SECONDARY_KEY = "Assigned";
 const RANDOM_NUMBER = Math.floor(Math.random() * 90000) + 10000;
+const NUM_ROOMS = 2;
+const ROOM_INDEX_START = 1;
 
 let params = {
   TableName: TABLE_NAME,
@@ -97,7 +99,6 @@ app.get("/", (req, res) => {
   */
 
 app.post("/", (req, res) => {
-  res.send("ack");
   console.log(req.body);
   console.log(req.body.meetingDate);
 
@@ -159,38 +160,47 @@ app.post("/", (req, res) => {
   Query the database for each scanParam and build the conflicting times array
   */
 
-  let conflictIntervals = [];
   let availableIntervals = [];
 
-  for (let i = 0; i < scanParams.length; i++) {
-    console.log(scanParams[i]);
-    docClient.scan(scanParams[i], (err, data) => {
-      if (err) {
-        console.error(
-          "Unable to scan the table. Error JSON:",
-          JSON.stringify(err, null, 2)
-        );
-      } else {
-        // print all the movies
-        console.log("Scan succeeded.");
-        data.Items.forEach(function (meeting) {
-          console.log(meeting);
-          conflictIntervals.push(meeting);
-          //console.log(conflictIntervals);
-          console.log(conflictIntervals.length);
-        });
-        /*
-        // continue scanning if we have more movies, because
-        // scan can retrieve a maximum of 1MB of data
-        if (typeof data.LastEvaluatedKey != "undefined") {
-          console.log("Scanning for more...");
-          params.ExclusiveStartKey = data.LastEvaluatedKey;
-          docClient.scan(params, onScan);
+  async function queryDBAndUpdateUI() {
+    for (let i = 0; i < scanParams.length; i++) {
+      console.log(scanParams[i]);
+      const result = await docClient.scan(scanParams[i]).promise();
+      console.log("getting result:");
+      console.log(result.Items);
+      console.log("finished getting result");
+
+      let unavailableRoomNumbers = new Map();
+      result.Items.forEach(function (meeting) {
+        unavailableRoomNumbers.set(Number(meeting.Room), true);
+        console.log("set:");
+        console.log(meeting.Room);
+      });
+
+      console.log("unavailable rooms:");
+      console.log(unavailableRoomNumbers);
+
+      for (let j = ROOM_INDEX_START; j <= NUM_ROOMS; j++) {
+        if (unavailableRoomNumbers.has(j) === true) {
+          continue;
         }
-        */
+        let meetingIntervalClone = Object.assign({}, meetingIntervals[i]);
+        meetingIntervalClone.meetingDate = meetingDate;
+        meetingIntervalClone.roomNumber = j;
+        availableIntervals.push(meetingIntervalClone);
+        console.log("pushed: ");
+        console.log(j);
       }
-    });
+    }
+    console.log("finished all db reads");
+    console.log(availableIntervals);
+
+    console.log(JSON.stringify(availableIntervals));
+    //res.json("hello from the back end");
+    res.send(availableIntervals);
   }
+
+  queryDBAndUpdateUI();
 
   /*
   let params = {
