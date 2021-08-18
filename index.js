@@ -16,9 +16,12 @@ let docClient = new AWS.DynamoDB.DocumentClient();
 const TABLE_NAME = "ScheduledRooms";
 const PRIMARY_KEY = "Room";
 const SECONDARY_KEY = "Assigned";
-const RANDOM_NUMBER = Math.floor(Math.random() * 90000) + 10000;
 const NUM_ROOMS = 2;
 const ROOM_INDEX_START = 1;
+
+const createRandomFiveDigit = () => {
+  return Math.floor(Math.random() * 90000) + 10000;
+};
 
 let params = {
   TableName: TABLE_NAME,
@@ -50,24 +53,6 @@ dynamodb.createTable(params, function (err, data) {
   }
 });
 
-let putParams = {
-  TableName: TABLE_NAME,
-  Item: {
-    Room: "1",
-    Assigned: "20210815" + "-" + RANDOM_NUMBER,
-    StartingTime: 1380,
-    EndingTime: 1410,
-  },
-};
-
-docClient.put(putParams, function (err, data) {
-  if (err) {
-    console.error("Unable to add time", JSON.stringify(err, null, 2));
-  } else {
-    console.log("PutItem succeeded:");
-  }
-});
-
 app.use(cors());
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
@@ -82,6 +67,7 @@ app.get("/", (req, res) => {
     -> (TODO): serverside validation if meeting duration + startTime < endTime!
     -> (TODO): serverside validation that minimum meeting duration is 15min
     -> (TODO): using random number in key to create separate entries might override entry
+    -> (TODO): serverside validation that a meeting was successfully taken
     -> Look in database to see all conflicting times
       -> filter Query params by:
           -> endTimeClient < endTimeServer && endTimeClient > startTimeServer
@@ -194,32 +180,34 @@ app.post("/", (req, res) => {
     }
     console.log("finished all db reads");
     console.log(availableIntervals);
-
-    console.log(JSON.stringify(availableIntervals));
-    //res.json("hello from the back end");
     res.send(availableIntervals);
   }
 
   queryDBAndUpdateUI();
+});
 
-  /*
-  let params = {
-    TableName: "ScheduledRooms",
+app.put("/", (req, res) => {
+  console.log(req.body);
+
+  let putParams = {
+    TableName: TABLE_NAME,
     Item: {
-      Room: "1",
-      Assigned: req.body.meetingDate,
-      StartingTime: req.body.meetingDate,
+      Room: String(req.body.roomNumber),
+      Assigned: req.body.meetingDate + "-" + createRandomFiveDigit(),
+      StartingTime: Number(req.body.meetingStartTime),
+      EndingTime: Number(req.body.meetingEndTime),
     },
   };
 
-  docClient.put(params, function (err, data) {
+  docClient.put(putParams, function (err, data) {
     if (err) {
       console.error("Unable to add time", JSON.stringify(err, null, 2));
+      res.send(JSON.stringify("error"));
     } else {
       console.log("PutItem succeeded:");
+      res.send(JSON.stringify("success"));
     }
   });
-  */
 });
 
 app.listen(5000, () => {
