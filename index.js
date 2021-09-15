@@ -1,23 +1,29 @@
 const express = require("express");
 const cors = require("cors");
 const AWS = require("aws-sdk");
-const { DevOpsGuru } = require("aws-sdk");
 
 const app = express();
 
-AWS.config.update({
+AWS.config.dynamodb = {
   region: "us-west-2",
   endpoint: "https://dynamodb.us-west-2.amazonaws.com",
-});
+};
+
+AWS.config.iotdata = {
+  region: "us-west-2",
+  endpoint: "a36ozlrpzvmdr4-ats.iot.us-west-2.amazonaws.com",
+};
 
 let dynamodb = new AWS.DynamoDB();
 let docClient = new AWS.DynamoDB.DocumentClient();
+let iotdata = new AWS.IotData();
 
 const TABLE_NAME = "ScheduledRooms";
 const PRIMARY_KEY = "Room";
 const SECONDARY_KEY = "Assigned";
 const NUM_ROOMS = 2;
 const ROOM_INDEX_START = 1;
+const MINIMUM_INTERVAL_TIME = 15;
 
 const createRandomFiveDigit = () => {
   return Math.floor(Math.random() * 90000) + 10000;
@@ -85,9 +91,6 @@ app.get("/", (req, res) => {
   */
 
 app.post("/", (req, res) => {
-  console.log(req.body);
-  console.log(req.body.meetingDate);
-
   let meetingDate = req.body.meetingDate;
   let startTimeRange = Number(req.body.meetingStartRangeInMinutes);
   let endTimeRange = Number(req.body.meetingEndRangeInMinutes);
@@ -100,6 +103,11 @@ app.post("/", (req, res) => {
   */
 
   let meetingIntervals = [];
+  if (startTimeRange % MINIMUM_INTERVAL_TIME != 0) {
+    let segment = Math.floor(startTimeRange / MINIMUM_INTERVAL_TIME) + 1;
+    startTimeRange = segment * MINIMUM_INTERVAL_TIME;
+  }
+
   for (
     let i = startTimeRange;
     i + durationMinutes <= endTimeRange;
@@ -112,7 +120,6 @@ app.post("/", (req, res) => {
     meetingIntervals.push(interval);
   }
 
-  console.log(meetingIntervals);
   /*
   Build a query param for each of the possible intervals
   */
@@ -150,21 +157,11 @@ app.post("/", (req, res) => {
 
   async function queryDBAndUpdateUI() {
     for (let i = 0; i < scanParams.length; i++) {
-      console.log(scanParams[i]);
       const result = await docClient.scan(scanParams[i]).promise();
-      console.log("getting result:");
-      console.log(result.Items);
-      console.log("finished getting result");
-
       let unavailableRoomNumbers = new Map();
       result.Items.forEach(function (meeting) {
         unavailableRoomNumbers.set(Number(meeting.Room), true);
-        console.log("set:");
-        console.log(meeting.Room);
       });
-
-      console.log("unavailable rooms:");
-      console.log(unavailableRoomNumbers);
 
       for (let j = ROOM_INDEX_START; j <= NUM_ROOMS; j++) {
         if (unavailableRoomNumbers.has(j) === true) {
@@ -174,12 +171,8 @@ app.post("/", (req, res) => {
         meetingIntervalClone.meetingDate = meetingDate;
         meetingIntervalClone.roomNumber = j;
         availableIntervals.push(meetingIntervalClone);
-        console.log("pushed: ");
-        console.log(j);
       }
     }
-    console.log("finished all db reads");
-    console.log(availableIntervals);
     res.send(availableIntervals);
   }
 
@@ -187,8 +180,6 @@ app.post("/", (req, res) => {
 });
 
 app.put("/", (req, res) => {
-  console.log(req.body);
-
   let putParams = {
     TableName: TABLE_NAME,
     Item: {
@@ -199,12 +190,38 @@ app.put("/", (req, res) => {
     },
   };
 
+  const core2IoTPayload = {
+    state: {
+      desired: { meetingInterval: "0000-0000", acknowledgement: false },
+    },
+  };
+
+  let meetingStart = req.body.meetingStartTime.toString().padStart(4, "0");
+  let meetingEnd = req.body.meetingEndTime.toString().padStart(4, "0");
+
+  core2IoTPayload.state.desired.meetingInterval =
+    meetingStart + "-" + meetingEnd;
+
+  let shadowParams = {
+    payload: JSON.stringify(core2IoTPayload),
+    thingName: "01231bd1cbac971101" /* required */,
+  };
+
+  // TODO: ATTACH REQUEST TIME TO SHADOW
+  // MAKE SURE SHADOW IS ONLY BEING UPDATED FOR UPCOMING MEETING!
+
+  iotdata.updateThingShadow(shadowParams, function (err, data) {
+    if (err) {
+      console.error("Unable to send to core2", JSON.stringify(err, null, 2));
+    } else {
+      console.log("send to core2 succeeded:");
+    }
+  });
+
   docClient.put(putParams, function (err, data) {
     if (err) {
-      console.error("Unable to add time", JSON.stringify(err, null, 2));
       res.send(JSON.stringify("error"));
     } else {
-      console.log("PutItem succeeded:");
       res.send(JSON.stringify("success"));
     }
   });
