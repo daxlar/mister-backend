@@ -18,4 +18,4 @@ There are a couple of lines of code that need to be changed.
 
 Follow the steps listed in the mister device repo : [mister device](https://github.com/daxlar/mister) to set up IoTData endpoint and thing name. Once done, the IAM User also needs the **AmazonDynamoDBFullAccess** policy.
 
-Then, just run npm-start to start up mister-backend
+Then, just run 'npm-start' to start up mister-backend
