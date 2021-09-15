@@ -1,14 +1,14 @@
 # mister-backend
 
-###### What is this ?
+#### What is this ?
 
 This is the corresponding back-end for the [mister-frontend](https://github.com/daxlar/mister-frontend).
 
-###### What does mister-backend do ?
+#### What does mister-backend do ?
 
 It stores the meeting time data from the front-end into a AWS DynamoDB table and communicates with the [mister device](https://github.com/daxlar/mister) via AWS IoT Core's device shadow.
 
-###### Getting started
+#### Getting started
 
 There are a couple of lines of code that need to be changed.
 
